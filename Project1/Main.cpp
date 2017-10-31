@@ -12,11 +12,18 @@
 namespace propt = boost::property_tree;
 
 
-static size_t WriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
+
+
+static size_t WriteCallback(char *contents, size_t size, size_t nmemb, void *userp)
 {
-	((std::stringstream*)userp)->write((char*)contents, size * nmemb);
+	if (userp && contents) {
+
+		((std::string*)userp)->assign(contents, (size * nmemb));
+	}
 	return size * nmemb;
 }
+
+
 
 void print(propt::ptree const& pt)
 {
@@ -28,46 +35,71 @@ void print(propt::ptree const& pt)
 	}
 }
 
+std::string getUserString(std::string prompt) {
+	std::cout << prompt << " ";
+
+	std::string res;
+	std::cin >> res;
+	std::cout << std::endl;
+	return res;
+}
+
 int main(void)
 {
 	CURL *curl;
 	CURLcode res;
+	std::string* response;
+
 	std::stringstream readBuffer;
 
 	propt::ptree root;
 
-	
 
-	const char *URL = "https://stream.twitter.com/1.1/statuses/sample.json";
+
+	std::string URL = "https://stream.twitter.com/1.1/statuses/sample.json?track=VR";
 	std::string consumer_key = "ief6hfiCDXFt8qxHpftdRQZK8"; // Key from Twitter
 	std::string consumer_secret = "DzR9AOhz4PC2dYiBoP3qaIb6vPefXBCYPqyfEOTt1jJWrE6U5I"; // Secret from Twitter
 	std::string request_token_url = "https://api.twitter.com/oauth/request_token";
 	std::string request_token_query_args = "oauth_callback=oob";
 	std::string authorize_url = "https://api.twitter.com/oauth/authorize";
 	std::string access_token_url = "https://api.twitter.com/oauth/access_token";
+	std::string access_token_key = "79369522-keYvdBfHdH1EKzXRrzUxCHKaY9iFNd98zDDZ4AKxO";
+	std::string access_token_secret = "ILsjrudsMGfyPYDgZetZwuluNhg6eAluvbvlASTOvbVQf";
 
-
-
+	
+	OAuth::Token access_token = OAuth::Token(access_token_key, access_token_secret);
 	OAuth::Consumer consumer(consumer_key, consumer_secret);
-	OAuth::Client oauth(&consumer);
-
-	std::string base_request_token_url = request_token_url + (request_token_query_args.empty() ? std::string("") : (std::string("?") + request_token_query_args));
-	std::string oAuthQueryString = oauth.getURLQueryString(OAuth::Http::Get, base_request_token_url);
-
-
+	OAuth::Client oauth = OAuth::Client(&consumer, &access_token);
+	std::string curlURL = oauth.getHttpHeader(OAuth::Http::Get, URL, std::string(""));
+	
+	curl_global_init(CURL_GLOBAL_ALL);
 	curl = curl_easy_init();
-	if (curl) {
-		curl_easy_setopt(curl, CURLOPT_URL, "http://www.google.com");
-		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-		res = curl_easy_perform(curl);
-		curl_easy_cleanup(curl);
-
-		propt::read_json(readBuffer, root);
-
-		print(root);
-
-		std::cin.get();
+	if (!curl) {
+		std::cout << "[ERROR] curl_easy_init" << std::endl;
+		curl_global_cleanup();
+		return 0;
 	}
+	curl_easy_setopt(curl, CURLOPT_URL, curlURL);
+
+	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+		// ==== Execute
+	res = curl_easy_perform(curl);
+		/* Check for errors */
+	if (res != CURLE_OK)
+		std::cout << "\n\n[ERROR] curl_easy_perform() failed: " << res << std::endl;
+
+	curl_easy_cleanup(curl);
+	curl_global_cleanup();
+
+	readBuffer << *response;
+	propt::read_json(readBuffer, root);
+
+	print(root);
+
+	std::cin.get();
 	return 0;
+
 }
